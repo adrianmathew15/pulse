@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: pulse-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pulse}
+    username: ${DB_USERNAME:pulse}
+    password: ${DB_PASSWORD:pulse}
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints.web.exposure.include: health,info
+  endpoint.health.probes.enabled: true
+
+pulse:
+  cors.allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
+  metrics:
+    simulation-enabled: ${PULSE_METRICS_ENABLED:true}
+    generation-interval-ms: ${PULSE_METRICS_INTERVAL_MS:5000}
+    default-query-limit: ${PULSE_METRICS_DEFAULT_LIMIT:100}
+    maximum-query-limit: ${PULSE_METRICS_MAX_LIMIT:500}
+  alerts:
+    default-query-limit: ${PULSE_ALERTS_DEFAULT_LIMIT:100}
+    maximum-query-limit: ${PULSE_ALERTS_MAX_LIMIT:500}
