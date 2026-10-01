@@ -29,3 +29,19 @@ pulse:
   alerts:
     default-query-limit: ${PULSE_ALERTS_DEFAULT_LIMIT:100}
     maximum-query-limit: ${PULSE_ALERTS_MAX_LIMIT:500}
+  health:
+    enabled: ${PULSE_HEALTH_ENABLED:true}
+    interval-ms: ${PULSE_HEALTH_INTERVAL_MS:30000}
+    timeout-ms: ${PULSE_HEALTH_TIMEOUT_MS:3000}
+    default-query-limit: ${PULSE_HEALTH_DEFAULT_LIMIT:100}
+    maximum-query-limit: ${PULSE_HEALTH_MAX_LIMIT:500}
+  incidents:
+    default-query-limit: ${PULSE_INCIDENTS_DEFAULT_LIMIT:100}
+    maximum-query-limit: ${PULSE_INCIDENTS_MAX_LIMIT:500}
+  notifications:
+    telegram:
+      enabled: ${PULSE_TELEGRAM_ENABLED:false}
+      bot-token: ${PULSE_TELEGRAM_BOT_TOKEN:}
+      chat-id: ${PULSE_TELEGRAM_CHAT_ID:}
+      api-base-url: ${PULSE_TELEGRAM_API_BASE_URL:https://api.telegram.org}
+      timeout-ms: ${PULSE_TELEGRAM_TIMEOUT_MS:5000}

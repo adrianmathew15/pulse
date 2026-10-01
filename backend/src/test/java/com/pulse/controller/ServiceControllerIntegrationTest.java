@@ -24,7 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.flyway.schemas=pulse_test",
         "spring.jpa.properties.hibernate.default_schema=pulse_test",
         "pulse.cors.allowed-origin=http://localhost:3000",
-        "pulse.metrics.simulation-enabled=false"
+        "pulse.metrics.simulation-enabled=false",
+        "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
 class ServiceControllerIntegrationTest {
@@ -53,7 +54,7 @@ class ServiceControllerIntegrationTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
-                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.status").value("UNKNOWN"))
                 .andReturn().getResponse().getHeader("Location");
 
         String id = location.substring(location.lastIndexOf('/') + 1);

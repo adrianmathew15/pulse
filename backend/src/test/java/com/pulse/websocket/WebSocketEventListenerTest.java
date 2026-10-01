@@ -4,10 +4,12 @@ import com.pulse.dto.AlertEventResponse;
 import com.pulse.dto.AlertEventType;
 import com.pulse.dto.AlertResponse;
 import com.pulse.dto.MetricResponse;
+import com.pulse.dto.HealthCheckResponse;
 import com.pulse.entity.AlertMetricType;
 import com.pulse.entity.AlertSeverity;
 import com.pulse.entity.AlertStatus;
 import com.pulse.entity.AlertType;
+import com.pulse.entity.ServiceStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,15 +67,32 @@ class WebSocketEventListenerTest {
     }
 
     @Test
-    void defersBothWebSocketListenersUntilAfterCommit() throws NoSuchMethodException {
+    void publishesHealthCheckDtoToServiceAndDashboardTopics() {
+        UUID serviceId = UUID.randomUUID();
+        HealthCheckResponse healthCheck = new HealthCheckResponse(
+                UUID.randomUUID(), serviceId, ServiceStatus.UP, 200, 42, Instant.now(), null);
+
+        listener.publishHealthCheck(new HealthCheckPersistedEvent(healthCheck));
+
+        verify(messagingTemplate).convertAndSend(
+                "/topic/services/" + serviceId + "/health-checks", healthCheck);
+        verify(messagingTemplate).convertAndSend("/topic/health-checks", healthCheck);
+    }
+
+    @Test
+    void defersAllWebSocketListenersUntilAfterCommit() throws NoSuchMethodException {
         var metricListener = WebSocketEventListener.class
                 .getMethod("publishMetric", MetricPersistedEvent.class)
                 .getAnnotation(TransactionalEventListener.class);
         var alertListener = WebSocketEventListener.class
                 .getMethod("publishAlert", AlertChangedEvent.class)
                 .getAnnotation(TransactionalEventListener.class);
+        var healthCheckListener = WebSocketEventListener.class
+                .getMethod("publishHealthCheck", HealthCheckPersistedEvent.class)
+                .getAnnotation(TransactionalEventListener.class);
 
         assertThat(metricListener.phase()).isEqualTo(TransactionPhase.AFTER_COMMIT);
         assertThat(alertListener.phase()).isEqualTo(TransactionPhase.AFTER_COMMIT);
+        assertThat(healthCheckListener.phase()).isEqualTo(TransactionPhase.AFTER_COMMIT);
     }
 }

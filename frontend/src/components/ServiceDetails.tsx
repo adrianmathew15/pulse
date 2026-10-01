@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { listAlerts } from '../api/alerts'
 import { getApiErrorMessage } from '../api/client'
+import { listHealthChecks } from '../api/healthChecks'
+import { listIncidents } from '../api/incidents'
 import { listMetrics } from '../api/metrics'
 import { updateThresholds } from '../api/services'
 import { useRealtimeSubscription } from '../realtime/RealtimeProvider'
-import { upsertAlert, upsertMetric } from '../realtime/realtimeState'
+import { upsertAlert, upsertHealthCheck, upsertIncident, upsertMetric } from '../realtime/realtimeState'
 import type { Alert, AlertEvent } from '../types/alert'
+import type { HealthCheck } from '../types/healthCheck'
+import type { Incident, IncidentEvent } from '../types/incident'
 import type { Metric } from '../types/metric'
 import type { MonitoredService } from '../types/service'
+import { SimulatedTelemetryGate } from './SimulatedTelemetryGate'
+import { IncidentList } from './IncidentList'
 
 interface Props {
   service: MonitoredService
@@ -20,6 +26,8 @@ interface Props {
 export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsChanged }: Props) {
   const [metrics, setMetrics] = useState<Metric[]>([])
   const [alerts, setAlerts] = useState<Alert[]>([])
+  const [healthChecks, setHealthChecks] = useState<HealthCheck[]>([])
+  const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,12 +38,16 @@ export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsCha
     setLoading(true)
     setError(null)
     try {
-      const [metricHistory, alertHistory] = await Promise.all([
+      const [metricHistory, alertHistory, healthHistory, incidentHistory] = await Promise.all([
         listMetrics(service.id),
         listAlerts(service.id),
+        listHealthChecks(service.id),
+        listIncidents(service.id),
       ])
       setMetrics(metricHistory)
       setAlerts(alertHistory)
+      setHealthChecks(healthHistory)
+      setIncidents(incidentHistory)
       onAlertsChanged()
     } catch (caught) {
       setError(getApiErrorMessage(caught))
@@ -53,6 +65,14 @@ export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsCha
   useRealtimeSubscription<AlertEvent>(
     `/topic/services/${service.id}/alerts`,
     (event) => setAlerts((current) => upsertAlert(current, event.alert)),
+  )
+  useRealtimeSubscription<HealthCheck>(
+    `/topic/services/${service.id}/health-checks`,
+    (healthCheck) => setHealthChecks((current) => upsertHealthCheck(current, healthCheck)),
+  )
+  useRealtimeSubscription<IncidentEvent>(
+    `/topic/services/${service.id}/incidents`,
+    (event) => setIncidents((current) => upsertIncident(current, event.incident)),
   )
   useEffect(() => {
     setCpuThreshold(String(service.cpuWarningThreshold))
@@ -83,6 +103,11 @@ export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsCha
   }
 
   const latest = metrics.at(-1)
+  const latestHealth = healthChecks.at(-1)
+  const currentHealthStatus = latestHealth?.status ?? service.status
+  const healthStatusTone = currentHealthStatus === 'UP'
+    ? 'text-emerald-300'
+    : currentHealthStatus === 'DOWN' ? 'text-red-300' : 'text-amber-300'
   const chartData = useMemo(() => metrics.map((metric) => ({
     ...metric,
     time: new Date(metric.timestamp).toLocaleTimeString(),
@@ -110,6 +135,42 @@ export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsCha
         <div><dt className="text-slate-500">Created</dt><dd className="mt-1 text-slate-200">{new Date(service.createdAt).toLocaleString()}</dd></div>
       </dl>
 
+      <section className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-400">Availability</p>
+            <p className={`mt-2 text-xl font-semibold ${healthStatusTone}`}>{currentHealthStatus}</p>
+          </div>
+          {latestHealth && <p className="text-xs text-slate-500">Checked {new Date(latestHealth.checkedAt).toLocaleString()}</p>}
+        </div>
+        {latestHealth ? <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+          <div><dt className="text-slate-500">HTTP status</dt><dd className="mt-1 text-slate-200">{latestHealth.httpStatus ?? 'Unavailable'}</dd></div>
+          <div><dt className="text-slate-500">Response time</dt><dd className="mt-1 text-slate-200">{latestHealth.responseTimeMs} ms</dd></div>
+          <div><dt className="text-slate-500">Failure reason</dt><dd className="mt-1 text-slate-200">{latestHealth.failureReason ?? 'None'}</dd></div>
+        </dl> : <p className="mt-3 text-sm text-slate-400">Waiting for the first health check.</p>}
+        {healthChecks.length > 0 && <div className="mt-5 overflow-x-auto">
+          <h4 className="mb-2 text-sm font-semibold">Recent checks</h4>
+          <table className="w-full min-w-[560px] text-left text-xs">
+            <thead className="uppercase tracking-wider text-slate-500"><tr><th className="py-2">Time</th><th>Status</th><th>HTTP</th><th>Response</th><th>Reason</th></tr></thead>
+            <tbody className="divide-y divide-slate-800">{healthChecks.slice(-10).reverse().map((check) => <tr key={check.id}>
+              <td className="py-2 text-slate-400">{new Date(check.checkedAt).toLocaleString()}</td>
+              <td className={check.status === 'UP' ? 'text-emerald-300' : 'text-red-300'}>{check.status}</td>
+              <td className="text-slate-300">{check.httpStatus ?? '—'}</td>
+              <td className="text-slate-300">{check.responseTimeMs} ms</td>
+              <td className="max-w-xs truncate text-slate-400">{check.failureReason ?? '—'}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+      </section>
+
+      <section className="mt-7 border-t border-slate-800 pt-6">
+        <div className="mb-4 flex items-end justify-between">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-red-400">Availability incidents</p><h4 className="mt-2 text-xl font-semibold">Incident history</h4></div>
+          <span className="text-sm text-slate-400">{incidents.filter((incident) => incident.status === 'ACTIVE').length} active</span>
+        </div>
+        <IncidentList incidents={incidents} />
+      </section>
+
       <form onSubmit={saveThresholds} className="mt-6 grid items-end gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-[1fr_1fr_auto]">
         <div><label className="mb-2 block text-sm text-slate-400" htmlFor="detail-cpu-threshold">CPU warning %</label><input id="detail-cpu-threshold" className="field-input" type="number" min="0.01" max="100" step="0.01" value={cpuThreshold} onChange={(event) => setCpuThreshold(event.target.value)} /></div>
         <div><label className="mb-2 block text-sm text-slate-400" htmlFor="detail-memory-threshold">Memory warning %</label><input id="detail-memory-threshold" className="field-input" type="number" min="0.01" max="100" step="0.01" value={memoryThreshold} onChange={(event) => setMemoryThreshold(event.target.value)} /></div>
@@ -118,16 +179,18 @@ export function ServiceDetails({ service, onClose, onServiceUpdated, onAlertsCha
 
       {error && <p role="alert" className="mt-5 rounded-lg bg-red-950/70 px-4 py-3 text-red-200">{error}</p>}
 
-      <section className="mt-7 border-t border-slate-800 pt-6">
-        <div className="mb-5 flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-400">Telemetry</p><h4 className="mt-2 text-xl font-semibold">Current metrics</h4></div>{latest && <span className="text-xs text-slate-500">Updated {new Date(latest.timestamp).toLocaleString()}</span>}</div>
-        {loading && metrics.length === 0 ? <p className="py-8 text-center text-slate-400">Loading metric history...</p>
-          : metrics.length === 0 ? <p className="rounded-xl border border-dashed border-slate-700 py-8 text-center text-slate-400">No metrics yet. The simulator will create the first sample shortly.</p>
-          : <>
-            <div className="grid gap-4 sm:grid-cols-2"><MetricValue label="CPU usage" value={latest!.cpuUsage} color="text-cyan-300" /><MetricValue label="Memory usage" value={latest!.memoryUsage} color="text-violet-300" /></div>
-            <div className="mt-6 grid gap-5 xl:grid-cols-2"><MetricChart title="CPU usage over time" data={chartData} dataKey="cpuUsage" color="#22d3ee" /><MetricChart title="Memory usage over time" data={chartData} dataKey="memoryUsage" color="#c4b5fd" /></div>
-            <div className="mt-6 overflow-x-auto"><h4 className="mb-3 font-semibold">Recent values</h4><table className="w-full min-w-[560px] text-left text-sm"><thead className="text-xs uppercase tracking-wider text-slate-500"><tr><th className="py-2">Time</th><th>CPU</th><th>Memory</th></tr></thead><tbody className="divide-y divide-slate-800">{metrics.slice(-10).reverse().map((metric) => <tr key={metric.id}><td className="py-2 text-slate-400">{new Date(metric.timestamp).toLocaleString()}</td><td className="text-cyan-300">{metric.cpuUsage.toFixed(2)}%</td><td className="text-violet-300">{metric.memoryUsage.toFixed(2)}%</td></tr>)}</tbody></table></div>
-          </>}
-      </section>
+      <SimulatedTelemetryGate status={currentHealthStatus}>
+        <section className="mt-7 border-t border-slate-800 pt-6">
+          <div className="mb-5 flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-400">Simulated telemetry</p><h4 className="mt-2 text-xl font-semibold">Current simulated metrics</h4></div>{latest && <span className="text-xs text-slate-500">Updated {new Date(latest.timestamp).toLocaleString()}</span>}</div>
+          {loading && metrics.length === 0 ? <p className="py-8 text-center text-slate-400">Loading simulated metric history...</p>
+            : metrics.length === 0 ? <p className="rounded-xl border border-dashed border-slate-700 py-8 text-center text-slate-400">No simulated metrics yet. The simulator will create the first sample shortly.</p>
+            : <>
+              <div className="grid gap-4 sm:grid-cols-2"><MetricValue label="Simulated CPU usage" value={latest!.cpuUsage} color="text-cyan-300" /><MetricValue label="Simulated memory usage" value={latest!.memoryUsage} color="text-violet-300" /></div>
+              <div className="mt-6 grid gap-5 xl:grid-cols-2"><MetricChart title="Simulated CPU usage over time" data={chartData} dataKey="cpuUsage" color="#22d3ee" /><MetricChart title="Simulated memory usage over time" data={chartData} dataKey="memoryUsage" color="#c4b5fd" /></div>
+              <div className="mt-6 overflow-x-auto"><h4 className="mb-3 font-semibold">Recent simulated values</h4><table className="w-full min-w-[560px] text-left text-sm"><thead className="text-xs uppercase tracking-wider text-slate-500"><tr><th className="py-2">Time</th><th>CPU</th><th>Memory</th></tr></thead><tbody className="divide-y divide-slate-800">{metrics.slice(-10).reverse().map((metric) => <tr key={metric.id}><td className="py-2 text-slate-400">{new Date(metric.timestamp).toLocaleString()}</td><td className="text-cyan-300">{metric.cpuUsage.toFixed(2)}%</td><td className="text-violet-300">{metric.memoryUsage.toFixed(2)}%</td></tr>)}</tbody></table></div>
+            </>}
+        </section>
+      </SimulatedTelemetryGate>
 
       <section className="mt-7 border-t border-slate-800 pt-6">
         <div className="mb-4 flex items-end justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-400">Alerts</p><h4 className="mt-2 text-xl font-semibold">Alert history</h4></div><span className="text-sm text-slate-400">{alerts.filter((alert) => alert.status === 'ACTIVE').length} active</span></div>

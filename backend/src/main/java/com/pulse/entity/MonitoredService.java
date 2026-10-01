@@ -53,7 +53,7 @@ public class MonitoredService {
         this.name = name;
         this.description = description;
         this.endpoint = endpoint;
-        this.status = ServiceStatus.UP;
+        this.status = ServiceStatus.UNKNOWN;
         this.createdAt = Instant.now();
         this.cpuWarningThreshold = cpuWarningThreshold;
         this.memoryWarningThreshold = memoryWarningThreshold;
@@ -62,7 +62,7 @@ public class MonitoredService {
     @PrePersist
     void applyDefaults() {
         if (id == null) id = UUID.randomUUID();
-        if (status == null) status = ServiceStatus.UP;
+        if (status == null) status = ServiceStatus.UNKNOWN;
         if (createdAt == null) createdAt = Instant.now();
         if (cpuWarningThreshold == null) cpuWarningThreshold = new BigDecimal("80.00");
         if (memoryWarningThreshold == null) memoryWarningThreshold = new BigDecimal("80.00");
@@ -71,6 +71,10 @@ public class MonitoredService {
     public void updateThresholds(BigDecimal cpuWarningThreshold, BigDecimal memoryWarningThreshold) {
         this.cpuWarningThreshold = cpuWarningThreshold;
         this.memoryWarningThreshold = memoryWarningThreshold;
+    }
+
+    public void updateStatus(ServiceStatus status) {
+        this.status = status;
     }
 
     public UUID getId() { return id; }

@@ -41,7 +41,11 @@ export function ServiceList({ services, deletingId, onView, onDelete }: Props) {
                 {service.endpoint ? <a className="hover:text-cyan-300" href={service.endpoint} target="_blank" rel="noreferrer">{service.endpoint}</a> : '—'}
               </td>
               <td className="px-5 py-4">
-                <span className="rounded-full bg-emerald-950 px-3 py-1 text-xs font-semibold text-emerald-300">{service.status}</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${service.status === 'UP'
+                  ? 'bg-emerald-950 text-emerald-300'
+                  : service.status === 'DOWN'
+                    ? 'bg-red-950 text-red-300'
+                    : 'bg-amber-950 text-amber-300'}`}>{service.status}</span>
               </td>
               <td className="px-5 py-4 text-slate-400">{new Date(service.createdAt).toLocaleString()}</td>
               <td className="px-5 py-4 text-right">

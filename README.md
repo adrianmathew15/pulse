@@ -45,6 +45,33 @@ docker compose down
 
 Add `--volumes` only when you intentionally want to delete the local PostgreSQL data volume.
 
+## Telegram incident notifications
+
+Pulse can send incident-created and incident-resolved notifications through the official
+Telegram Bot API `sendMessage` method. The channel is disabled by default, and Pulse starts
+normally without any Telegram credentials.
+
+To enable delivery, create a `.env` file from `.env.example` and configure:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PULSE_TELEGRAM_ENABLED` | `false` | Enables the Telegram notification channel. |
+| `PULSE_TELEGRAM_BOT_TOKEN` | empty | Bot token issued by BotFather. |
+| `PULSE_TELEGRAM_CHAT_ID` | empty | Target user, group, or channel chat ID. |
+| `PULSE_TELEGRAM_API_BASE_URL` | `https://api.telegram.org` | Telegram Bot API base URL. Override primarily for testing. |
+| `PULSE_TELEGRAM_TIMEOUT_MS` | `5000` | Connect and response timeout in milliseconds. |
+
+Create a bot by messaging [BotFather](https://t.me/BotFather) in Telegram and copy the bot
+token into `PULSE_TELEGRAM_BOT_TOKEN`. Start a direct chat with the bot, or add it to the
+target group/channel and send a message there, so the bot can send messages to that chat.
+Obtain the target chat ID (for example, from the Bot API `getUpdates` response), set
+`PULSE_TELEGRAM_CHAT_ID`, and then set `PULSE_TELEGRAM_ENABLED=true`. Never commit a real bot
+token or chat ID.
+
+Telegram is a second implementation of the existing `NotificationChannel` interface. Incident
+transitions remain provider-independent, delivery runs only after the incident transaction
+commits, and a Telegram API failure is logged without interrupting in-app STOMP delivery.
+
 ## Run applications locally
 
 Start only PostgreSQL with `docker compose up postgres`, then run:

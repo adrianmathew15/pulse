@@ -1,4 +1,4 @@
-export type ServiceStatus = 'UP' | 'DOWN'
+export type ServiceStatus = 'UNKNOWN' | 'UP' | 'DOWN'
 
 export interface MonitoredService {
   id: string

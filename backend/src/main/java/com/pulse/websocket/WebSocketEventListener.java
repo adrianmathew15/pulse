@@ -28,4 +28,13 @@ public class WebSocketEventListener {
         messagingTemplate.convertAndSend(serviceDestination, payload);
         messagingTemplate.convertAndSend("/topic/alerts", payload);
     }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void publishHealthCheck(HealthCheckPersistedEvent event) {
+        var healthCheck = event.healthCheck();
+        messagingTemplate.convertAndSend(
+                "/topic/services/" + healthCheck.serviceId() + "/health-checks", healthCheck);
+        messagingTemplate.convertAndSend("/topic/health-checks", healthCheck);
+    }
+
 }

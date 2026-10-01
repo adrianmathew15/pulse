@@ -47,7 +47,7 @@ class ServiceManagementServiceTest {
         ));
 
         assertThat(result.name()).isEqualTo("Payment API");
-        assertThat(result.status().name()).isEqualTo("UP");
+        assertThat(result.status().name()).isEqualTo("UNKNOWN");
         assertThat(result.id()).isNotNull();
         assertThat(result.cpuWarningThreshold()).isEqualByComparingTo("80.00");
         assertThat(result.memoryWarningThreshold()).isEqualByComparingTo("80.00");

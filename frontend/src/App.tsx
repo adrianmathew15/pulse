@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { listActiveAlerts } from './api/alerts'
+import { listActiveIncidents } from './api/incidents'
 import { createService, deleteService, getService, listServices } from './api/services'
 import { getApiErrorMessage } from './api/client'
 import { ServiceDetails } from './components/ServiceDetails'
 import { ServiceList } from './components/ServiceList'
 import { ServiceRegistrationForm } from './components/ServiceRegistrationForm'
 import { useRealtimeSubscription } from './realtime/RealtimeProvider'
+import { countHealthyServices } from './dashboardSummary'
 import type { Alert, AlertEvent } from './types/alert'
+import type { HealthCheck } from './types/healthCheck'
+import type { Incident, IncidentEvent } from './types/incident'
 import type { CreateServiceRequest, MonitoredService } from './types/service'
 
 function App() {
@@ -16,13 +20,17 @@ function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeAlerts, setActiveAlerts] = useState<Alert[]>([])
+  const [activeIncidents, setActiveIncidents] = useState<Incident[]>([])
 
   const loadServices = useCallback(async () => {
     setError(null)
     try {
-      const [registeredServices, activeAlerts] = await Promise.all([listServices(), listActiveAlerts()])
+      const [registeredServices, activeAlerts, activeIncidents] = await Promise.all([
+        listServices(), listActiveAlerts(), listActiveIncidents(),
+      ])
       setServices(registeredServices)
       setActiveAlerts(activeAlerts)
+      setActiveIncidents(activeIncidents)
     } catch (caught) {
       setError(getApiErrorMessage(caught))
     } finally {
@@ -39,6 +47,26 @@ function App() {
         byId.set(event.alert.id, event.alert)
       } else {
         byId.delete(event.alert.id)
+      }
+      return [...byId.values()]
+    })
+  }, () => { void loadServices() })
+
+  useRealtimeSubscription<HealthCheck>('/topic/health-checks', (healthCheck) => {
+    const applyStatus = (service: MonitoredService) => service.id === healthCheck.serviceId
+      ? { ...service, status: healthCheck.status }
+      : service
+    setServices((current) => current.map(applyStatus))
+    setSelected((current) => current ? applyStatus(current) : null)
+  })
+
+  useRealtimeSubscription<IncidentEvent>('/topic/incidents', (event) => {
+    setActiveIncidents((current) => {
+      const byId = new Map(current.map((incident) => [incident.id, incident]))
+      if (event.eventType === 'INCIDENT_CREATED' && event.incident.status === 'ACTIVE') {
+        byId.set(event.incident.id, event.incident)
+      } else {
+        byId.delete(event.incident.id)
       }
       return [...byId.values()]
     })
@@ -93,10 +121,11 @@ function App() {
           <p className="mt-3 max-w-2xl text-slate-400">Register and manage the services that Pulse will monitor.</p>
         </header>
 
-        <section className="mb-8 grid gap-4 sm:grid-cols-3">
+        <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard label="Total services" value={services.length} tone="text-cyan-300" />
           <SummaryCard label="Active alerts" value={activeAlerts.length} tone="text-amber-300" />
-          <SummaryCard label="Healthy services" value={services.filter((service) => service.status === 'UP' && !activeAlertServiceIds.has(service.id)).length} tone="text-emerald-300" />
+          <SummaryCard label="Active incidents" value={activeIncidents.length} tone="text-red-300" />
+          <SummaryCard label="Healthy services" value={countHealthyServices(services, activeAlertServiceIds)} tone="text-emerald-300" />
         </section>
 
         <div className="grid gap-8 lg:grid-cols-[360px_1fr]">

@@ -27,7 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.url=${DB_URL:jdbc:postgresql://localhost:5432/pulse}?currentSchema=pulse_test",
         "spring.flyway.schemas=pulse_test",
         "spring.jpa.properties.hibernate.default_schema=pulse_test",
-        "pulse.metrics.simulation-enabled=false"
+        "pulse.metrics.simulation-enabled=false",
+        "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
 class MetricControllerIntegrationTest {
