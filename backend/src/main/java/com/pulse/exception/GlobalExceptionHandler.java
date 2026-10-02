@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -42,6 +43,14 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiError> handleDuplicate(DuplicateServiceException exception,
                                               HttpServletRequest request) {
         return response(HttpStatus.CONFLICT, "Conflict", exception.getMessage(), request, Map.of());
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException exception,
+                                                   HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        String message = exception.getReason() == null ? status.getReasonPhrase() : exception.getReason();
+        return response(status, status.getReasonPhrase(), message, request, Map.of());
     }
 
     @ExceptionHandler({IllegalArgumentException.class, ConstraintViolationException.class,

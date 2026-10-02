@@ -22,10 +22,10 @@ management:
 pulse:
   cors.allowed-origin: ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
   security:
-    username: ${PULSE_AUTH_USERNAME:}
-    password-hash: ${PULSE_AUTH_PASSWORD_HASH:}
-    jwt-secret: ${PULSE_JWT_SECRET:}
-    jwt-expiration-ms: ${PULSE_JWT_EXPIRATION_MS:900000}
+    username: pulse-test
+    password-hash: "$2y$12$hxSE9aMIBU0Zl2LqrtY6pebNexMe.YITNP9CojYMIVDmVYEuKx6om"
+    jwt-secret: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+    jwt-expiration-ms: 900000
   metrics:
     simulation-enabled: ${PULSE_METRICS_ENABLED:true}
     generation-interval-ms: ${PULSE_METRICS_INTERVAL_MS:5000}

@@ -34,10 +34,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
-class IncidentControllerIntegrationTest {
+class IncidentControllerIntegrationTest extends AuthenticatedMockMvcIntegrationTest {
     private static final Instant T0 = Instant.parse("2026-09-30T12:00:00Z");
 
-    @Autowired private MockMvc mockMvc;
     @Autowired private ServiceRepository serviceRepository;
     @Autowired private HealthCheckRepository healthCheckRepository;
     @Autowired private IncidentRepository incidentRepository;

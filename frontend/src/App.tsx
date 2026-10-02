@@ -13,7 +13,7 @@ import type { HealthCheck } from './types/healthCheck'
 import type { Incident, IncidentEvent } from './types/incident'
 import type { CreateServiceRequest, MonitoredService } from './types/service'
 
-function App() {
+function App({ onLogout }: { onLogout: () => void }) {
   const [services, setServices] = useState<MonitoredService[]>([])
   const [selected, setSelected] = useState<MonitoredService | null>(null)
   const [loading, setLoading] = useState(true)
@@ -115,10 +115,16 @@ function App() {
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-10">
+        <header className="mb-10 flex items-start justify-between gap-4">
+          <div>
           <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-400">Infrastructure monitoring</p>
           <h1 className="mt-3 text-5xl font-bold tracking-tight">Pulse</h1>
           <p className="mt-3 max-w-2xl text-slate-400">Register and manage the services that Pulse will monitor.</p>
+          </div>
+          <button type="button" onClick={onLogout}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-cyan-500 hover:text-cyan-300">
+            Sign out
+          </button>
         </header>
 
         <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -1,17 +1,19 @@
-name: pulse
+name: pulse-production
 
 services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+    networks:
+      - data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -19,18 +21,18 @@ services:
       retries: 10
 
   backend:
-    restart: unless-stopped
     build:
       context: ./backend
+    restart: unless-stopped
     environment:
-      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB must be set in .env}
-      DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-      PULSE_AUTH_USERNAME: ${PULSE_AUTH_USERNAME:?PULSE_AUTH_USERNAME must be set in .env}
-      PULSE_AUTH_PASSWORD_HASH: ${PULSE_AUTH_PASSWORD_HASH:?PULSE_AUTH_PASSWORD_HASH must be set in .env}
-      PULSE_JWT_SECRET: ${PULSE_JWT_SECRET:?PULSE_JWT_SECRET must be set in .env}
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?POSTGRES_DB must be set}
+      DB_USERNAME: ${POSTGRES_USER:?POSTGRES_USER must be set}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      PULSE_AUTH_USERNAME: ${PULSE_AUTH_USERNAME:?PULSE_AUTH_USERNAME must be set}
+      PULSE_AUTH_PASSWORD_HASH: ${PULSE_AUTH_PASSWORD_HASH:?PULSE_AUTH_PASSWORD_HASH must be set}
+      PULSE_JWT_SECRET: ${PULSE_JWT_SECRET:?PULSE_JWT_SECRET must be set}
       PULSE_JWT_EXPIRATION_MS: ${PULSE_JWT_EXPIRATION_MS:-900000}
-      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:3000}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:?CORS_ALLOWED_ORIGIN must be set}
       JPA_DDL_AUTO: validate
       PULSE_METRICS_ENABLED: ${PULSE_METRICS_ENABLED:-true}
       PULSE_METRICS_INTERVAL_MS: ${PULSE_METRICS_INTERVAL_MS:-5000}
@@ -50,8 +52,11 @@ services:
       PULSE_TELEGRAM_CHAT_ID: ${PULSE_TELEGRAM_CHAT_ID:-}
       PULSE_TELEGRAM_API_BASE_URL: ${PULSE_TELEGRAM_API_BASE_URL:-https://api.telegram.org}
       PULSE_TELEGRAM_TIMEOUT_MS: ${PULSE_TELEGRAM_TIMEOUT_MS:-5000}
-    ports:
-      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    expose:
+      - "8080"
+    networks:
+      - edge
+      - data
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,23 +67,29 @@ services:
       retries: 12
       start_period: 20s
 
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-        VITE_WS_URL: ${VITE_WS_URL:-}
+  reverse-proxy:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "${PROXY_HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx/production.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - edge
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ > /dev/null"]
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/actuator/health | grep -q UP"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 6
       start_period: 5s
+
+networks:
+  edge:
+  data:
+    internal: true
 
 volumes:
   postgres_data:

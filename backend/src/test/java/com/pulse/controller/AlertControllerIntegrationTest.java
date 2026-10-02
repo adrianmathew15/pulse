@@ -36,9 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
-class AlertControllerIntegrationTest {
-    @Autowired
-    private MockMvc mockMvc;
+class AlertControllerIntegrationTest extends AuthenticatedMockMvcIntegrationTest {
     @Autowired
     private ServiceRepository serviceRepository;
     @Autowired

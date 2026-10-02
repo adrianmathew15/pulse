@@ -28,9 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
-class ServiceControllerIntegrationTest {
-    @Autowired
-    private MockMvc mockMvc;
+class ServiceControllerIntegrationTest extends AuthenticatedMockMvcIntegrationTest {
 
     @Autowired
     private ServiceRepository repository;
@@ -50,7 +48,7 @@ class ServiceControllerIntegrationTest {
         String location = mockMvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Payment API","description":"Payments","endpoint":"https://api.example.com"}
+                                {"name":"Payment API","description":"Payments","endpoint":"https://8.8.8.8"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(header().exists("Location"))
@@ -86,13 +84,24 @@ class ServiceControllerIntegrationTest {
                 .andExpect(jsonPath("$.fieldErrors.name").exists())
                 .andExpect(jsonPath("$.fieldErrors.endpoint").exists());
 
-        String request = "{\"name\":\"Payment API\",\"endpoint\":\"https://api.example.com\"}";
+        String request = "{\"name\":\"Payment API\",\"endpoint\":\"https://8.8.8.8\"}";
         mockMvc.perform(post("/api/services").contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/services").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"payment api\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("Conflict"));
+    }
+
+    @Test
+    void rejectsBlockedEndpointWithoutPersistingIt() throws Exception {
+        mockMvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Internal API\",\"endpoint\":\"http://127.0.0.1/admin\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Endpoint destination is not allowed"));
+
+        org.assertj.core.api.Assertions.assertThat(repository.count()).isZero();
     }
 
     @Test

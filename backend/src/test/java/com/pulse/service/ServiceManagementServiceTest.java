@@ -28,12 +28,14 @@ import static org.mockito.Mockito.when;
 class ServiceManagementServiceTest {
     @Mock
     private ServiceRepository repository;
+    @Mock
+    private EndpointDestinationValidator destinationValidator;
 
     private ServiceManagementService service;
 
     @BeforeEach
     void setUp() {
-        service = new ServiceManagementService(repository);
+        service = new ServiceManagementService(repository, destinationValidator);
     }
 
     @Test
@@ -52,6 +54,7 @@ class ServiceManagementServiceTest {
         assertThat(result.cpuWarningThreshold()).isEqualByComparingTo("80.00");
         assertThat(result.memoryWarningThreshold()).isEqualByComparingTo("80.00");
         verify(repository).saveAndFlush(any(MonitoredService.class));
+        verify(destinationValidator).validate("https://api.example.com");
     }
 
     @Test

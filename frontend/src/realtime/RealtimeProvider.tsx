@@ -18,11 +18,18 @@ interface RealtimeContextValue {
 const RealtimeContext = createContext<RealtimeContextValue | null>(null)
 
 function brokerUrl() {
+  const configuredUrl = import.meta.env.VITE_WS_URL?.trim()
+  if (configuredUrl) return configuredUrl
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/ws`
 }
 
-export function RealtimeProvider({ children }: { children: ReactNode }) {
+export function RealtimeProvider({ children, token, onUnauthorized }: {
+  children: ReactNode
+  token: string
+  onUnauthorized: () => void
+}) {
   const clientRef = useRef<Client | null>(null)
   const topicsRef = useRef(new Map<string, TopicRegistration>())
   const reconnectHandlersRef = useRef(new Set<ReconnectHandler>())
@@ -70,6 +77,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const client = new Client({
       brokerURL: brokerUrl(),
+      connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 3_000,
       heartbeatIncoming: 10_000,
       heartbeatOutgoing: 10_000,
@@ -88,7 +96,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         topicsRef.current.forEach((topic) => { topic.subscription = undefined })
         setConnected(false)
       },
-      onStompError: (frame) => console.error('STOMP broker error', frame.headers.message),
+      onStompError: (frame) => {
+        console.error('STOMP broker error', frame.headers.message)
+        void client.deactivate()
+        onUnauthorized()
+      },
     })
     clientRef.current = client
     client.activate()
@@ -97,7 +109,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       clientRef.current = null
       void client.deactivate()
     }
-  }, [attachTopic])
+  }, [attachTopic, onUnauthorized, token])
 
   return <RealtimeContext.Provider value={{ connected, subscribe, onReconnect }}>
     {children}

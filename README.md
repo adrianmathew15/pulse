@@ -35,7 +35,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`. The example password is for local development; change it in `.env` before first startup.
+On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`. Compose requires the database name, user, and password plus the authentication values described below. The example database password is for local development only; replace it with a strong secret for any non-local environment.
 
 Open <http://localhost:3000>. Backend health is available at <http://localhost:8080/actuator/health>. Stop the application with:
 
@@ -44,6 +44,67 @@ docker compose down
 ```
 
 Add `--volumes` only when you intentionally want to delete the local PostgreSQL data volume.
+
+PostgreSQL and Spring Boot are published only on the host loopback interface for local tools and diagnostics. Containers still reach PostgreSQL at `postgres:5432`. Configure browser-to-backend addresses and the allowed browser origin with:
+
+| Variable | Local default | Purpose |
+|---|---|---|
+| `VITE_API_BASE_URL` | `/api` | Public API base URL embedded in the frontend build. Set an absolute HTTPS URL for a separately hosted frontend. |
+| `VITE_WS_URL` | Same-origin `/ws` | Public STOMP WebSocket URL embedded in the frontend build. Set an absolute WSS URL for a separately hosted frontend. |
+| `CORS_ALLOWED_ORIGIN` | `http://localhost:3000` in Compose | Exact browser origin accepted by the backend REST and WebSocket endpoints. Wildcard origins are not used. |
+
+`VITE_*` values are public browser configuration and are visible in the built frontend. Never put passwords, tokens, or other secrets in them. Leaving the two Vite variables empty preserves local Nginx/Vite proxy behavior.
+
+## Production Docker Compose
+
+`docker-compose.production.yml` prepares the server-side stack for a future Oracle VM while
+leaving the local `docker-compose.yml` workflow unchanged. It contains PostgreSQL, Spring Boot,
+and a dedicated Nginx reverse proxy; the React frontend is intentionally excluded because it
+will be hosted separately.
+
+```bash
+docker compose -f docker-compose.production.yml config --quiet
+docker compose -f docker-compose.production.yml up --build -d --wait
+```
+
+Only the reverse proxy publishes a host port (`PROXY_HTTP_PORT`, default `80`). PostgreSQL remains
+available only as `postgres:5432` on the internal data network, while Spring Boot remains available
+only as `backend:8080` to other containers. The proxy forwards `/api`, `/ws`, and exactly
+`/actuator/health`; its `/ws` route preserves WebSocket upgrade headers. Port 80 is an HTTP-only
+placeholder for local validation and must not be exposed to the internet until TLS is configured.
+
+Production requires `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `PULSE_AUTH_USERNAME`,
+`PULSE_AUTH_PASSWORD_HASH`, `PULSE_JWT_SECRET`, and an exact `CORS_ALLOWED_ORIGIN`. Telegram
+credentials are required only when `PULSE_TELEGRAM_ENABLED=true`. The remaining tuning variables
+retain their documented defaults. Supply secrets through the VM's protected environment or an
+uncommitted `.env` file; never commit the populated values.
+
+## Authentication and endpoint safety
+
+Pulse uses one environment-configured application user. `POST /api/auth/login` accepts its
+username and password and returns a short-lived HMAC-SHA-256 JWT. All other `/api/**` requests
+require `Authorization: Bearer <token>`. STOMP clients send the same header in their CONNECT
+frame. `/actuator/health` remains public for container health checks; no other actuator endpoint
+is exposed.
+
+Configure these server-only values in `.env` before starting Compose:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PULSE_AUTH_USERNAME` | required | Initial application username. |
+| `PULSE_AUTH_PASSWORD_HASH` | required | BCrypt hash of the application password. Store the hash, never the plaintext password. In a Compose `.env` file, single-quote the hash so its `$` characters remain literal. |
+| `PULSE_JWT_SECRET` | required | Base64-encoded random key of at least 32 bytes. Generate it with a cryptographically secure local tool, for example `openssl rand -base64 32`. |
+| `PULSE_JWT_EXPIRATION_MS` | `900000` | Access-token lifetime in milliseconds (15 minutes by default). |
+
+Do not put any of these values in `VITE_*` variables or commit a populated `.env`. The frontend
+keeps the access token in `sessionStorage`, adds it to REST requests and STOMP CONNECT, and returns
+to the login page when it expires or the backend rejects it.
+
+Registered monitor endpoints are restricted to absolute HTTP/HTTPS URLs whose resolved addresses
+are public. Loopback, private, link-local, multicast, cloud-metadata, and obvious internal/Docker
+destinations are rejected before persistence and again before each request. The HTTP client pins
+validation to the DNS addresses it actually uses and does not follow redirects; a redirect target
+is validated and recorded as a non-UP response without being requested.
 
 ## Telegram incident notifications
 
@@ -76,6 +137,10 @@ commits, and a Telegram API failure is logged without interrupting in-app STOMP 
 
 Start only PostgreSQL with `docker compose up postgres`, then run:
 
+Before launching Spring Boot directly, export `PULSE_AUTH_USERNAME`,
+`PULSE_AUTH_PASSWORD_HASH`, and `PULSE_JWT_SECRET` in that terminal. These are mandatory server
+settings; Compose reads them from `.env`, but a direct Maven process does not.
+
 ```bash
 cd backend
 mvn test
@@ -96,6 +161,7 @@ Local backend development requires Java 25 and Maven 3.6.3 or newer; Node.js 24 
 
 | Method | Endpoint | Purpose |
 |---|---|---|
+| `POST` | `/api/auth/login` | Exchange the configured username/password for an access token |
 | `POST` | `/api/services` | Register a service |
 | `GET` | `/api/services` | List services |
 | `GET` | `/api/services/{id}` | Get a service |
@@ -137,8 +203,8 @@ docker compose config
 docker compose up --build --wait
 ```
 
-The integration tests use `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` and exercise a real PostgreSQL database. The 37-test backend suite also covers WebSocket payload publication, after-commit configuration, and persistence-failure suppression. Frontend tests cover duplicate metric and alert event handling. The backend container build can be used when Maven or Java 25 is not installed on the host.
+The integration tests use `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` and exercise a real PostgreSQL database. The backend suite also covers authentication and authorization, SSRF defenses, WebSocket authorization and payload publication, after-commit configuration, and persistence-failure suppression. Frontend tests cover session handling plus duplicate metric and alert event handling. The backend container build can be used when Maven or Java 25 is not installed on the host.
 
 ## Future improvements
 
-Only after the Phase 1 vertical slice is complete, later phases may consider a telemetry pipeline, caching, authentication/authorization, real agents, distributed processing, observability, CI/CD, and cloud deployment. They are deliberately absent now.
+Only after the current vertical slice is complete, later phases may consider a telemetry pipeline, caching, advanced user management, real agents, distributed processing, observability, CI/CD, and cloud deployment. They are deliberately absent now.

@@ -31,9 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "pulse.health.enabled=false"
 })
 @AutoConfigureMockMvc
-class MetricControllerIntegrationTest {
-    @Autowired
-    private MockMvc mockMvc;
+class MetricControllerIntegrationTest extends AuthenticatedMockMvcIntegrationTest {
     @Autowired
     private ServiceRepository serviceRepository;
     @Autowired
@@ -55,7 +53,7 @@ class MetricControllerIntegrationTest {
         String location = mockMvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"name":"Payment API","endpoint":"https://api.example.com"}
+                                {"name":"Payment API","endpoint":"https://8.8.8.8"}
                                 """))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getHeader("Location");

@@ -20,9 +20,12 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class ServiceManagementService {
     private final ServiceRepository repository;
+    private final EndpointDestinationValidator endpointValidator;
 
-    public ServiceManagementService(ServiceRepository repository) {
+    public ServiceManagementService(ServiceRepository repository,
+                                    EndpointDestinationValidator endpointValidator) {
         this.repository = repository;
+        this.endpointValidator = endpointValidator;
     }
 
     @Transactional
@@ -32,10 +35,13 @@ public class ServiceManagementService {
             throw duplicate(name);
         }
 
+        String endpoint = normalizeOptional(request.endpoint());
+        if (endpoint != null) endpointValidator.validate(endpoint);
+
         MonitoredService service = new MonitoredService(
                 name,
                 normalizeOptional(request.description()),
-                normalizeOptional(request.endpoint()),
+                endpoint,
                 thresholdOrDefault(request.cpuWarningThreshold()),
                 thresholdOrDefault(request.memoryWarningThreshold())
         );

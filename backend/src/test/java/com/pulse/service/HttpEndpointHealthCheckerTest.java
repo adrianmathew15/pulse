@@ -1,63 +1,49 @@
 package com.pulse.service;
 
 import com.pulse.entity.ServiceStatus;
-import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.time.Clock;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class HttpEndpointHealthCheckerTest {
-    private HttpServer server;
-    private String baseUrl;
+    private EndpointDestinationValidator validator;
+    private EndpointHttpClient client;
+    private HttpEndpointHealthChecker checker;
+    private final URI endpoint = URI.create("https://203.0.113.10/health");
 
     @BeforeEach
-    void startServer() throws Exception {
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/ok", exchange -> {
-            exchange.sendResponseHeaders(204, -1);
-            exchange.close();
-        });
-        server.createContext("/failure", exchange -> {
-            exchange.sendResponseHeaders(503, -1);
-            exchange.close();
-        });
-        server.createContext("/slow", exchange -> {
-            try {
-                Thread.sleep(250);
-                exchange.sendResponseHeaders(200, -1);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-            } finally {
-                exchange.close();
-            }
-        });
-        server.start();
-        baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-    }
-
-    @AfterEach
-    void stopServer() {
-        server.stop(0);
+    void setUp() {
+        validator = mock(EndpointDestinationValidator.class);
+        client = mock(EndpointHttpClient.class);
+        checker = new HttpEndpointHealthChecker(validator, client, 50, Clock.systemUTC());
     }
 
     @Test
-    void reportsSuccessfulHttpResponseAsUp() {
-        HealthCheckOutcome result = checker(1000).check(baseUrl + "/ok");
+    void reportsSuccessfulHttpResponseAsUp() throws Exception {
+        when(validator.validate(endpoint.toString())).thenReturn(endpoint);
+        when(client.get(endpoint)).thenReturn(new EndpointHttpResponse(204, null));
+        HealthCheckOutcome result = checker.check(endpoint.toString());
 
         assertThat(result.status()).isEqualTo(ServiceStatus.UP);
         assertThat(result.httpStatus()).isEqualTo(204);
-        assertThat(result.responseTimeMs()).isNotNegative();
         assertThat(result.failureReason()).isNull();
     }
 
     @Test
-    void reportsHttpFailureAsDown() {
-        HealthCheckOutcome result = checker(1000).check(baseUrl + "/failure");
+    void reportsHttpFailureAsDown() throws Exception {
+        when(validator.validate(endpoint.toString())).thenReturn(endpoint);
+        when(client.get(endpoint)).thenReturn(new EndpointHttpResponse(503, null));
+        HealthCheckOutcome result = checker.check(endpoint.toString());
 
         assertThat(result.status()).isEqualTo(ServiceStatus.DOWN);
         assertThat(result.httpStatus()).isEqualTo(503);
@@ -65,23 +51,36 @@ class HttpEndpointHealthCheckerTest {
     }
 
     @Test
-    void reportsTimeoutWithoutThrowing() {
-        HealthCheckOutcome result = checker(50).check(baseUrl + "/slow");
-
-        assertThat(result.status()).isEqualTo(ServiceStatus.DOWN);
-        assertThat(result.httpStatus()).isNull();
-        assertThat(result.failureReason()).contains("timed out");
+    void reportsTimeoutWithoutThrowing() throws Exception {
+        when(validator.validate(endpoint.toString())).thenReturn(endpoint);
+        when(client.get(endpoint)).thenThrow(new SocketTimeoutException("timed out"));
+        assertThat(checker.check(endpoint.toString()).failureReason()).contains("timed out");
     }
 
     @Test
-    void reportsInvalidEndpointWithoutThrowing() {
-        HealthCheckOutcome result = checker(1000).check("not a URL");
+    void rejectsPrivateRedirectWithoutFollowingIt() throws Exception {
+        URI privateTarget = URI.create("http://127.0.0.1/admin");
+        when(validator.validate(endpoint.toString())).thenReturn(endpoint);
+        when(client.get(endpoint)).thenReturn(new EndpointHttpResponse(302, privateTarget.toString()));
+        doThrow(new EndpointNotAllowedException("Endpoint destination is not allowed"))
+                .when(validator).validate(privateTarget);
 
-        assertThat(result.status()).isEqualTo(ServiceStatus.DOWN);
-        assertThat(result.failureReason()).startsWith("Invalid endpoint:");
+        assertThatThrownBy(() -> checker.check(endpoint.toString()))
+                .isInstanceOf(EndpointNotAllowedException.class);
+        verify(client).get(endpoint);
+        verify(validator).validate(privateTarget);
     }
 
-    private HttpEndpointHealthChecker checker(long timeoutMs) {
-        return new HttpEndpointHealthChecker(timeoutMs, Clock.systemUTC());
+    @Test
+    void rejectsLocalhostRedirectWithoutFollowingIt() throws Exception {
+        URI localhost = URI.create("http://localhost/admin");
+        when(validator.validate(endpoint.toString())).thenReturn(endpoint);
+        when(client.get(endpoint)).thenReturn(new EndpointHttpResponse(301, localhost.toString()));
+        doThrow(new EndpointNotAllowedException("Endpoint destination is not allowed"))
+                .when(validator).validate(localhost);
+
+        assertThatThrownBy(() -> checker.check(endpoint.toString()))
+                .isInstanceOf(EndpointNotAllowedException.class);
+        verify(client).get(endpoint);
     }
 }

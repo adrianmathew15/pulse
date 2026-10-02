@@ -1,9 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import App from './App'
-import { RealtimeProvider } from './realtime/RealtimeProvider'
+import { AuthenticationRoot } from './auth/AuthenticationRoot'
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode><RealtimeProvider><App /></RealtimeProvider></StrictMode>,
+  <StrictMode><AuthenticationRoot /></StrictMode>,
 )

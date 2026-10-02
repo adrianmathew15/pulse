@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,5 +41,24 @@ class HealthCheckMonitoringServiceTest {
 
         verify(resultService).record(first.getId(), firstOutcome);
         verify(resultService).record(second.getId(), secondOutcome);
+    }
+
+    @Test
+    void blockedDestinationCreatesNoResultAndDoesNotStopRemainingChecks() {
+        MonitoredService blocked = new MonitoredService("Blocked", null, "http://localhost");
+        MonitoredService publicService = new MonitoredService("Public", null, "https://8.8.8.8");
+        HealthCheckOutcome publicOutcome = new HealthCheckOutcome(
+                ServiceStatus.UP, 200, 8, Instant.now(), null);
+        when(serviceRepository.findAll()).thenReturn(List.of(blocked, publicService));
+        when(endpointHealthChecker.check(blocked.getEndpoint())).thenThrow(
+                new EndpointNotAllowedException("Endpoint destination is not allowed"));
+        when(endpointHealthChecker.check(publicService.getEndpoint())).thenReturn(publicOutcome);
+
+        new HealthCheckMonitoringService(serviceRepository, endpointHealthChecker, resultService)
+                .checkAllServices();
+
+        verify(resultService, never()).record(org.mockito.ArgumentMatchers.eq(blocked.getId()),
+                org.mockito.ArgumentMatchers.any());
+        verify(resultService).record(publicService.getId(), publicOutcome);
     }
 }
