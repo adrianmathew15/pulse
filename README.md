@@ -1,30 +1,79 @@
 # Pulse
 
-Pulse is a real-time infrastructure monitoring platform. Phase 1 is designed as a small, understandable vertical slice: register services, simulate and persist CPU/memory metrics, evaluate CPU thresholds, and update a dashboard through WebSockets.
+Pulse is a self-hosted service monitoring dashboard. It combines real HTTP availability checks with simulated CPU and memory telemetry so that service health, performance history, threshold alerts, and outages can be explored in one place.
 
-> **Current status:** Service Management, Simulated Metric Persistence, Alert Persistence, and real-time WebSocket delivery are implemented. Services have configurable CPU and memory thresholds. Each threshold breach creates one active alert episode, repeated violations are suppressed, and recovery resolves the episode. Committed metric and alert changes update the dashboard live, while REST remains the initial-load and reconnect-recovery source.
+Pulse periodically checks every registered public HTTP/HTTPS endpoint, records its response status and latency, and maintains an `UNKNOWN`/`UP`/`DOWN` service state. A transition to `DOWN` opens one incident; repeated failures remain part of that incident; and the next successful check resolves it. Incident transitions appear in the dashboard immediately and can optionally be sent through Telegram. Independently, the telemetry simulator produces CPU and memory samples and opens or resolves threshold-alert episodes.
 
-## Phase 1 features
+The project is intentionally a modular monolith: one React application, one Spring Boot application, and one PostgreSQL database. It does not require agents, a message broker, Redis, or a separate notification service.
 
-The completed Phase 1 will provide service registration and removal, stored metric history, live CPU/memory charts, threshold-based CPU alerts with duplicate suppression, recent alerts, useful error handling, and Docker Compose startup. Features explicitly excluded from this phase are listed in [the architecture document](docs/architecture.md).
+## What Pulse provides
+
+- Registration and removal of monitored services, with configurable CPU and memory warning thresholds.
+- Scheduled HTTP health checks with status code, response time, failure reason, and history.
+- Availability incident tracking with duplicate suppression and automatic recovery.
+- Simulated CPU and memory history with independent threshold-alert lifecycles.
+- A live dashboard driven by STOMP/WebSocket events, with REST used for initial loading and reconnect recovery.
+- Optional Telegram notifications for incident creation and resolution.
+- JWT authentication for REST endpoints and STOMP connections.
+- SSRF-resistant endpoint validation that blocks private, loopback, link-local, metadata, and other unsafe destinations.
+- Local and production-oriented Docker Compose configurations.
 
 ## Architecture
 
-The application uses three containers on one Docker Compose network:
+```mermaid
+flowchart LR
+    User[Browser] -->|HTTP| Web[React SPA<br/>Nginx]
+    Web -->|REST /api| API[Spring Boot<br/>modular monolith]
+    API -->|STOMP /ws| Web
+    API -->|JPA / Flyway| DB[(PostgreSQL)]
+    Monitor[Health-check scheduler] --> API
+    Simulator[Metric simulator] --> API
+    API -->|HTTP checks| Services[Public service endpoints]
+    API -. incident transitions .-> Telegram[Telegram Bot API]
+```
 
-- React, TypeScript, Vite, Tailwind CSS, Recharts, and Axios, built and served by Nginx.
-- One Spring Boot backend containing REST, simulation, alerting, persistence, and STOMP/WebSocket concerns.
-- PostgreSQL as the durable store for services, metrics, and alerts.
+In the local Compose stack, the frontend, backend, and PostgreSQL run as three containers on one network. Nginx serves the compiled single-page application and proxies `/api` and `/ws` to Spring Boot, so browser traffic remains same-origin. The production Compose file excludes the frontend and places a dedicated reverse proxy in front of the private backend and database networks.
 
-Nginx proxies `/api` and `/ws` to the backend, keeping browser traffic same-origin. See [docs/architecture.md](docs/architecture.md) for the component diagram, proposed schema, API contract, event flows, and configuration decisions.
+### Component responsibilities
+
+| Component | Responsibilities |
+|---|---|
+| React frontend | Authenticates the user; loads durable state with Axios; displays service, metric, alert, health-check, and incident data; maintains one reconnecting STOMP client; and reconciles missed events through REST. |
+| Spring Boot backend | Exposes REST and STOMP endpoints; validates authentication and monitor destinations; schedules HTTP checks and simulated metrics; manages alert and incident state transitions; dispatches notifications; and defines transaction boundaries. |
+| PostgreSQL | Stores services, metric samples, alert episodes, health-check results, and incidents. Flyway owns the schema and Hibernate validates it at startup. |
+| Nginx | Serves the frontend in the local stack and reverse-proxies API and WebSocket traffic. The production configuration exposes only the proxy while keeping the backend and database private. |
+| Telegram channel | Optionally sends incident-created and incident-resolved messages. Delivery failures are logged and do not roll back monitoring data or interrupt in-app events. |
+
+The backend follows conventional `controller`, `service`, `repository`, `entity`, and `dto` layers. Cross-cutting `config`, `websocket`, and `notification` packages contain security, commit-safe event delivery, and pluggable notification channels. These packages are modules inside one deployable application, not separate microservices.
+
+### Core data flows
+
+1. **Availability monitoring:** a scheduler selects each registered service, validates and calls its public endpoint, then persists a health check. The result updates service status and opens or resolves a single incident when the status changes.
+2. **Telemetry and alerts:** a separate scheduler generates bounded CPU and memory samples. Persisted samples are evaluated against per-service thresholds; one active alert per metric is maintained until recovery.
+3. **Real-time delivery:** transactional application events are handled only after commit. Metrics, alerts, health checks, and incident transitions are published to service-specific and dashboard-wide STOMP topics.
+4. **Notification delivery:** incident transitions are converted into provider-neutral notifications after commit. The in-app channel publishes STOMP events, while the optional Telegram channel calls the Bot API.
+5. **Frontend consistency:** REST is the source of truth for page loads and reconnect recovery. WebSocket messages provide live deltas, and entity IDs make repeated deliveries idempotent.
+
+### Repository layout
+
+```text
+Pulse/
+|-- backend/                  Spring Boot application, migrations, and tests
+|-- frontend/                 React/Vite dashboard and frontend tests
+|-- deploy/nginx/             Production reverse-proxy configuration
+|-- docs/architecture.md      Detailed original architecture and design decisions
+|-- docker-compose.yml        Local full-stack environment
+`-- docker-compose.production.yml
+                              Production-oriented backend stack
+```
 
 ## Technology baseline
 
-- Java 25 LTS, Spring Boot 4.1.1, Maven 3.9.11
-- Node.js 24 LTS, React 19.3, TypeScript 5.9, Vite 7.3, Tailwind CSS 4.3
-- PostgreSQL 18 (verified with 18.6)
-- Docker and Docker Compose
-- JUnit 5 and Spring Boot Test
+- Java 25 LTS, Spring Boot 4.1.1, Maven, Spring Security, JPA, Flyway, and STOMP/WebSocket
+- Node.js 24 LTS, React 19, TypeScript 5.9, Vite 7, Tailwind CSS 4, Axios, and Recharts
+- PostgreSQL 18
+- Nginx, Docker, and Docker Compose
+- JUnit 5, Spring Boot Test, MockMvc, and Vitest
 
 ## Run with Docker Compose
 
@@ -170,8 +219,18 @@ Local backend development requires Java 25 and Maven 3.6.3 or newer; Node.js 24 
 | `GET` | `/api/services/{id}/metrics?limit=100` | Get recent metrics in chronological order (maximum 500) |
 | `GET` | `/api/services/{id}/alerts?status=ACTIVE&limit=100` | Get bounded alert history, optionally filtered by status |
 | `GET` | `/api/alerts/active?limit=500` | Get active alerts across services |
+| `GET` | `/api/services/{id}/health-checks?limit=100` | Get recent endpoint health-check results |
+| `GET` | `/api/services/{id}/incidents?status=ACTIVE&limit=100` | Get bounded incident history, optionally filtered by status |
+| `GET` | `/api/incidents/active?limit=500` | Get active incidents across services |
 
-The backend generates one simulated sample per registered service every five seconds by default and evaluates it against that service's thresholds. CPU and memory episodes are independent. Thresholds default to 80%, must be greater than zero and at most 100%, and can be set during registration or edited in service details. The STOMP endpoint `/ws` publishes committed metrics to `/topic/services/{serviceId}/metrics` and alert transitions to `/topic/services/{serviceId}/alerts` plus the dashboard-wide `/topic/alerts` stream.
+The backend generates one simulated sample per registered service every five seconds by default and evaluates it against that service's thresholds. CPU and memory episodes are independent. Thresholds default to 80%, must be greater than zero and at most 100%, and can be set during registration or edited in service details.
+
+The health scheduler checks registered endpoints every 30 seconds by default. It records every result and updates service availability, while an availability transition creates or resolves an incident. The STOMP endpoint `/ws` publishes committed data on the following topics:
+
+- `/topic/services/{serviceId}/metrics`
+- `/topic/services/{serviceId}/alerts` and `/topic/alerts`
+- `/topic/services/{serviceId}/health-checks` and `/topic/health-checks`
+- `/topic/services/{serviceId}/incidents` and `/topic/incidents`
 
 Metric simulation and retrieval can be tuned without rebuilding:
 
@@ -183,8 +242,15 @@ Metric simulation and retrieval can be tuned without rebuilding:
 | `PULSE_METRICS_MAX_LIMIT` | `500` | Server-side upper bound for history requests |
 | `PULSE_ALERTS_DEFAULT_LIMIT` | `100` | Default alert-history result size |
 | `PULSE_ALERTS_MAX_LIMIT` | `500` | Server-side upper bound for alert requests |
+| `PULSE_HEALTH_ENABLED` | `true` | Enable scheduled endpoint health checks |
+| `PULSE_HEALTH_INTERVAL_MS` | `30000` | Delay between completed health-check runs |
+| `PULSE_HEALTH_TIMEOUT_MS` | `3000` | HTTP connection and response timeout |
+| `PULSE_HEALTH_DEFAULT_LIMIT` | `100` | Default health-check history size |
+| `PULSE_HEALTH_MAX_LIMIT` | `500` | Server-side upper bound for health-check requests |
+| `PULSE_INCIDENTS_DEFAULT_LIMIT` | `100` | Default incident-history result size |
+| `PULSE_INCIDENTS_MAX_LIMIT` | `500` | Server-side upper bound for incident requests |
 
-Metric values are simulations; Pulse does not contact a service endpoint to collect them. Automatic retention and aggregation are future concerns, so long-running installations should manage database growth operationally for now.
+Metric values are simulations and are not collected from the registered endpoint; availability data does come from real HTTP checks. Automatic retention and aggregation are future concerns, so long-running installations should manage database growth operationally for now.
 
 ## Verification
 
@@ -207,4 +273,4 @@ The integration tests use `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD` and exercis
 
 ## Future improvements
 
-Only after the current vertical slice is complete, later phases may consider a telemetry pipeline, caching, advanced user management, real agents, distributed processing, observability, CI/CD, and cloud deployment. They are deliberately absent now.
+Potential later improvements include a real telemetry pipeline, retention and aggregation policies, advanced user management, additional notification providers, distributed processing, observability, CI/CD, and cloud deployment. They are deliberately absent from the current modular-monolith design.
